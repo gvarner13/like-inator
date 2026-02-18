@@ -111,15 +111,8 @@ app.get('/x/liked-posts/websites', async (c) => {
 	return handleLikedPostsWebsites(c.req.raw, c.env);
 });
 
-app.all('*', async (c) => {
-	const request = c.req.raw;
-	const url = new URL(request.url);
-
-	if (request.method === 'GET' && url.pathname === '/') {
-		return new Response('Hello World!');
-	}
-
-	return json({ error: 'Not Found' }, 404);
+app.get('/', () => {
+	return new Response('Hello World!');
 });
 
 export default app satisfies ExportedHandler<Env>;
