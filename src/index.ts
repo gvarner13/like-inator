@@ -56,14 +56,18 @@ app.onError((error) => {
 	return json({ error: 'internal_error', detail: message }, 500);
 });
 
+app.use('/agents/*', async (c, next) => {
+	const agentResponse = await routeAgentRequest(c.req.raw, c.env);
+	if (agentResponse) {
+		return agentResponse;
+	}
+	await next();
+});
+
 app.all('*', async (c) => {
 	const request = c.req.raw;
 	const env = c.env;
 	const url = new URL(request.url);
-
-	// Route WebSocket connections to /agents/research-agent/{name}
-	const agentResponse = await routeAgentRequest(request, env);
-	if (agentResponse) return agentResponse;
 
 	// HTTP API for starting research tasks
 	if (request.method === 'POST' && url.pathname === '/research') {
