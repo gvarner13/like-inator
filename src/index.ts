@@ -1,5 +1,6 @@
 import { Client, OAuth2, generateCodeChallenge, generateCodeVerifier, type OAuth2Config } from '@xdevplatform/xdk';
 import { getAgentByName, routeAgentRequest } from 'agents';
+import { Hono } from 'hono';
 
 export { ResearchAgent } from './agent';
 export { ResearchWorkflow } from './workflow';
@@ -46,73 +47,75 @@ type ResearchAgentRpc = {
 	getResearchStatus(instanceId: string): Promise<unknown>;
 };
 
-export default {
-	async fetch(request, env, _ctx): Promise<Response> {
-		try {
-			const url = new URL(request.url);
+const app = new Hono<{ Bindings: Env }>();
 
-			// Route WebSocket connections to /agents/research-agent/{name}
-			const agentResponse = await routeAgentRequest(request, env);
-			if (agentResponse) return agentResponse;
+app.notFound(() => json({ error: 'Not Found' }, 404));
 
-			// HTTP API for starting research tasks
-			if (request.method === 'POST' && url.pathname === '/research') {
-				const { task, agentId } = (await request.json()) as {
-					task?: string;
-					agentId?: string;
-				};
+app.onError((error) => {
+	const message = error instanceof Error ? error.message : 'Unknown error';
+	return json({ error: 'internal_error', detail: message }, 500);
+});
 
-				if (!task || typeof task !== 'string') {
-					return json({ error: 'task required' }, 400);
-				}
+app.use('/agents/*', async (c, next) => {
+	const agentResponse = await routeAgentRequest(c.req.raw, c.env);
+	if (agentResponse) {
+		return agentResponse;
+	}
+	await next();
+});
 
-				// Get agent instance by name (creates if it doesn't exist)
-				const agent = (await getAgentByName(env.ResearchAgent as any, agentId ?? 'default')) as unknown as ResearchAgentRpc;
-				const result = await agent.startResearch(task);
-				return Response.json(result);
-			}
+app.post('/research', async (c) => {
+	const request = c.req.raw;
+	const env = c.env;
+	const { task, agentId } = (await request.json()) as {
+		task?: string;
+		agentId?: string;
+	};
 
-			// Check workflow status
-			if (url.pathname === '/status') {
-				const instanceId = url.searchParams.get('instanceId');
-				const agentId = url.searchParams.get('agentId') ?? 'default';
+	if (!task || typeof task !== 'string') {
+		return json({ error: 'task required' }, 400);
+	}
 
-				if (!instanceId) {
-					return Response.json({ error: 'instanceId required' }, { status: 400 });
-				}
+	const agent = (await getAgentByName(env.ResearchAgent as any, agentId ?? 'default')) as unknown as ResearchAgentRpc;
+	const result = await agent.startResearch(task);
+	return Response.json(result);
+});
 
-				const agent = (await getAgentByName(env.ResearchAgent as any, agentId)) as unknown as ResearchAgentRpc;
-				const status = await agent.getResearchStatus(instanceId);
-				return Response.json(status);
-			}
+app.get('/status', async (c) => {
+	const env = c.env;
+	const instanceId = c.req.query('instanceId');
+	const agentId = c.req.query('agentId') ?? 'default';
 
-			if (request.method === 'GET' && url.pathname === '/auth/x/login') {
-				return startXOAuth(request, env);
-			}
+	if (!instanceId) {
+		return Response.json({ error: 'instanceId required' }, { status: 400 });
+	}
 
-			if (request.method === 'GET' && url.pathname === '/auth/x/callback') {
-				return handleXOAuthCallback(request, env);
-			}
+	const agent = (await getAgentByName(env.ResearchAgent as any, agentId)) as unknown as ResearchAgentRpc;
+	const status = await agent.getResearchStatus(instanceId);
+	return Response.json(status);
+});
 
-			if (request.method === 'GET' && url.pathname === '/x/liked-posts') {
-				return handleLikedPosts(request, env);
-			}
+app.get('/auth/x/login', async (c) => {
+	return startXOAuth(c.req.raw, c.env);
+});
 
-			if (request.method === 'GET' && url.pathname === '/x/liked-posts/websites') {
-				return handleLikedPostsWebsites(request, env);
-			}
+app.get('/auth/x/callback', async (c) => {
+	return handleXOAuthCallback(c.req.raw, c.env);
+});
 
-			if (request.method === 'GET' && url.pathname === '/') {
-				return new Response('Hello World!');
-			}
+app.get('/x/liked-posts', async (c) => {
+	return handleLikedPosts(c.req.raw, c.env);
+});
 
-			return json({ error: 'Not Found' }, 404);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Unknown error';
-			return json({ error: 'internal_error', detail: message }, 500);
-		}
-	},
-} satisfies ExportedHandler<Env>;
+app.get('/x/liked-posts/websites', async (c) => {
+	return handleLikedPostsWebsites(c.req.raw, c.env);
+});
+
+app.get('/', () => {
+	return new Response('Hello World!');
+});
+
+export default app satisfies ExportedHandler<Env>;
 
 async function startXOAuth(request: Request, env: Env): Promise<Response> {
 	const redirectUri = getRedirectUri(request, env);

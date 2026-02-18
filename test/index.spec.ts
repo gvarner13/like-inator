@@ -71,4 +71,15 @@ describe('Hello World worker', () => {
 		const body = (await response.json()) as { error: string };
 		expect(body.error).toBe('missing_access_token');
 	});
+
+	it('treats /status as GET-only', async () => {
+		const request = new IncomingRequest('http://example.com/status?instanceId=test-id', { method: 'POST' });
+		const ctx = createExecutionContext();
+		const response = await worker.fetch(request, env, ctx);
+		await waitOnExecutionContext(ctx);
+
+		expect(response.status).toBe(404);
+		const body = (await response.json()) as { error: string };
+		expect(body.error).toBe('Not Found');
+	});
 });

@@ -17,6 +17,9 @@ importers:
       agents:
         specifier: ^0.4.0
         version: 0.4.0(@cloudflare/ai-chat@0.0.7)(@cloudflare/codemode@0.0.7)(@cloudflare/workers-types@4.20260210.0)(ai@6.0.81(zod@4.3.6))(react@19.2.4)(zod@4.3.6)
+      hono:
+        specifier: ^4.11.9
+        version: 4.11.9
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.12.4
