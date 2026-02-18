@@ -64,41 +64,41 @@ app.use('/agents/*', async (c, next) => {
 	await next();
 });
 
+app.post('/research', async (c) => {
+	const request = c.req.raw;
+	const env = c.env;
+	const { task, agentId } = (await request.json()) as {
+		task?: string;
+		agentId?: string;
+	};
+
+	if (!task || typeof task !== 'string') {
+		return json({ error: 'task required' }, 400);
+	}
+
+	const agent = (await getAgentByName(env.ResearchAgent as any, agentId ?? 'default')) as unknown as ResearchAgentRpc;
+	const result = await agent.startResearch(task);
+	return Response.json(result);
+});
+
+app.get('/status', async (c) => {
+	const env = c.env;
+	const instanceId = c.req.query('instanceId');
+	const agentId = c.req.query('agentId') ?? 'default';
+
+	if (!instanceId) {
+		return Response.json({ error: 'instanceId required' }, { status: 400 });
+	}
+
+	const agent = (await getAgentByName(env.ResearchAgent as any, agentId)) as unknown as ResearchAgentRpc;
+	const status = await agent.getResearchStatus(instanceId);
+	return Response.json(status);
+});
+
 app.all('*', async (c) => {
 	const request = c.req.raw;
 	const env = c.env;
 	const url = new URL(request.url);
-
-	// HTTP API for starting research tasks
-	if (request.method === 'POST' && url.pathname === '/research') {
-		const { task, agentId } = (await request.json()) as {
-			task?: string;
-			agentId?: string;
-		};
-
-		if (!task || typeof task !== 'string') {
-			return json({ error: 'task required' }, 400);
-		}
-
-		// Get agent instance by name (creates if it doesn't exist)
-		const agent = (await getAgentByName(env.ResearchAgent as any, agentId ?? 'default')) as unknown as ResearchAgentRpc;
-		const result = await agent.startResearch(task);
-		return Response.json(result);
-	}
-
-	// Check workflow status
-	if (url.pathname === '/status') {
-		const instanceId = url.searchParams.get('instanceId');
-		const agentId = url.searchParams.get('agentId') ?? 'default';
-
-		if (!instanceId) {
-			return Response.json({ error: 'instanceId required' }, { status: 400 });
-		}
-
-		const agent = (await getAgentByName(env.ResearchAgent as any, agentId)) as unknown as ResearchAgentRpc;
-		const status = await agent.getResearchStatus(instanceId);
-		return Response.json(status);
-	}
 
 	if (request.method === 'GET' && url.pathname === '/auth/x/login') {
 		return startXOAuth(request, env);
