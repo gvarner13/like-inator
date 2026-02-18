@@ -234,6 +234,7 @@ async function handleLikedPosts(request: Request, env: Env): Promise<Response> {
 		hasStoredTokens: Boolean(storedTokens),
 		hasUserIdQueryParam: Boolean(url.searchParams.get('user_id')),
 		hasPaginationToken: Boolean(url.searchParams.get('pagination_token')),
+		cacheBust: isTruthyQueryParam(url.searchParams.get('cache_bust')),
 	});
 
 	if (!providedAccessToken && !storedTokens) {
@@ -290,39 +291,48 @@ async function handleLikedPosts(request: Request, env: Env): Promise<Response> {
 
 		const maxResults = getBoundedInt(url.searchParams.get('max_results'), DEFAULT_LIKED_POSTS_PER_PAGE, 5, MAX_LIKED_POSTS_PER_PAGE);
 		const paginationToken = url.searchParams.get('pagination_token') ?? undefined;
+		const cacheBust = isTruthyQueryParam(url.searchParams.get('cache_bust'));
 		const cacheKey = buildLikedPostsCacheKey({
 			userId: resolvedUserId,
 			maxResults,
 			paginationToken,
 		});
-		console.log({
-			event: 'liked_posts.cache_lookup',
-			requestId,
-			cacheKey,
-		});
-		const cachedLikedPosts = await getLikedPostsCache(env, cacheKey);
-		if (cachedLikedPosts) {
+		if (!cacheBust) {
 			console.log({
-				event: 'liked_posts.cache_hit',
+				event: 'liked_posts.cache_lookup',
 				requestId,
-				postCount: cachedLikedPosts.meta.postCount,
-				nextToken: cachedLikedPosts.meta.nextToken,
+				cacheKey,
 			});
-			return json(
-				{
-					...cachedLikedPosts,
-					meta: {
-						...cachedLikedPosts.meta,
-						cached: true,
+			const cachedLikedPosts = await getLikedPostsCache(env, cacheKey);
+			if (cachedLikedPosts) {
+				console.log({
+					event: 'liked_posts.cache_hit',
+					requestId,
+					postCount: cachedLikedPosts.meta.postCount,
+					nextToken: cachedLikedPosts.meta.nextToken,
+				});
+				return json(
+					{
+						...cachedLikedPosts,
+						meta: {
+							...cachedLikedPosts.meta,
+							cached: true,
+						},
 					},
-				},
-				200,
-			);
+					200,
+				);
+			}
+			console.log({
+				event: 'liked_posts.cache_miss',
+				requestId,
+			});
+		} else {
+			console.log({
+				event: 'liked_posts.cache_bypassed',
+				requestId,
+				cacheKey,
+			});
 		}
-		console.log({
-			event: 'liked_posts.cache_miss',
-			requestId,
-		});
 
 		console.log({
 			event: 'liked_posts.x_get_liked_posts.start',
@@ -601,6 +611,15 @@ function getBoundedInt(value: string | null, defaultValue: number, minValue: num
 	}
 
 	return Math.max(minValue, Math.min(maxValue, parsed));
+}
+
+function isTruthyQueryParam(value: string | null): boolean {
+	if (!value) {
+		return false;
+	}
+
+	const normalized = value.trim().toLowerCase();
+	return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
 function isExpiringSoon(expiresAtEpochMs: number, bufferSeconds: number): boolean {
