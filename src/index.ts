@@ -98,6 +98,10 @@ export default {
 				return handleLikedPosts(request, env);
 			}
 
+			if (request.method === 'GET' && url.pathname === '/x/liked-posts/websites') {
+				return handleLikedPostsWebsites(request, env);
+			}
+
 			if (request.method === 'GET' && url.pathname === '/') {
 				return new Response('Hello World!');
 			}
@@ -414,6 +418,36 @@ async function handleLikedPosts(request: Request, env: Env): Promise<Response> {
 	}
 }
 
+async function handleLikedPostsWebsites(request: Request, env: Env): Promise<Response> {
+	const likedPostsResponse = await handleLikedPosts(request, env);
+	if (!likedPostsResponse.ok) {
+		return likedPostsResponse;
+	}
+
+	let payload: LikedPostsResponseBody;
+	try {
+		payload = (await likedPostsResponse.clone().json()) as LikedPostsResponseBody;
+	} catch {
+		return json({ error: 'invalid_liked_posts_payload' }, 502);
+	}
+
+	const likedPostsWithWebsites = payload.likedPosts.map((post) => {
+		const safePost = typeof post === 'object' && post !== null ? (post as Record<string, unknown>) : { raw: post };
+		return {
+			...safePost,
+			websiteUrls: extractWebsiteUrlsFromPost(post),
+		};
+	});
+
+	return json(
+		{
+			...payload,
+			likedPosts: likedPostsWithWebsites,
+		},
+		200,
+	);
+}
+
 function getOAuth2Config(request: Request, env: Env, redirectUri: string): OAuth2Config {
 	const clientId = getOptionalEnv(env, 'X_API_CLIENT_ID') ?? getRequiredEnv(env, 'CLIENT_ID');
 	const clientSecret = getOptionalEnv(env, 'X_API_CLIENT_SECRET') ?? getOptionalEnv(env, 'CLIENT_SECRET');
@@ -568,6 +602,85 @@ function buildLikedPostsCacheKey({
 }): string {
 	const tokenPart = paginationToken ? encodeURIComponent(paginationToken) : 'none';
 	return `${X_LIKED_POSTS_CACHE_KEY_PREFIX}:${userId}:${maxResults}:${tokenPart}`;
+}
+
+function extractWebsiteUrlsFromPost(post: unknown): string[] {
+	if (typeof post !== 'object' || post === null) {
+		return [];
+	}
+
+	const entities = (post as { entities?: unknown }).entities;
+	if (typeof entities !== 'object' || entities === null) {
+		return [];
+	}
+
+	const rawUrls = (entities as { urls?: unknown }).urls;
+	if (!Array.isArray(rawUrls)) {
+		return [];
+	}
+
+	const urls = rawUrls
+		.map((item) => {
+			if (typeof item !== 'object' || item === null) {
+				return null;
+			}
+			const entity = item as {
+				unwoundUrl?: unknown;
+				expandedUrl?: unknown;
+				url?: unknown;
+				mediaKey?: unknown;
+			};
+
+			const candidate =
+				typeof entity.unwoundUrl === 'string'
+					? entity.unwoundUrl
+					: typeof entity.expandedUrl === 'string'
+						? entity.expandedUrl
+						: typeof entity.url === 'string'
+							? entity.url
+							: null;
+			if (!candidate || !isWebsiteUrl(candidate, entity)) {
+				return null;
+			}
+			return candidate;
+		})
+		.filter((url): url is string => Boolean(url));
+
+	return Array.from(new Set(urls));
+}
+
+function isWebsiteUrl(url: string, entity?: { mediaKey?: unknown }): boolean {
+	if (entity && typeof entity.mediaKey === 'string' && entity.mediaKey.length > 0) {
+		return false;
+	}
+
+	let parsed: URL;
+	try {
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+
+	if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+		return false;
+	}
+
+	const host = parsed.hostname.toLowerCase();
+	if (host === 'pic.x.com' || host === 'pbs.twimg.com' || host === 'video.twimg.com') {
+		return false;
+	}
+
+	const path = parsed.pathname.toLowerCase();
+	const isXDomain = host === 'x.com' || host.endsWith('.x.com') || host === 'twitter.com' || host.endsWith('.twitter.com');
+	if (isXDomain && (path.includes('/photo/') || path.includes('/video/'))) {
+		return false;
+	}
+
+	if (/\.(jpg|jpeg|png|gif|webp|svg|avif|bmp|ico|mp4|mov|webm|m4v|avi)$/i.test(path)) {
+		return false;
+	}
+
+	return true;
 }
 
 function getRedirectUri(request: Request, env: Env): string {
