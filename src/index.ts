@@ -95,18 +95,18 @@ app.get('/status', async (c) => {
 	return Response.json(status);
 });
 
+app.get('/auth/x/login', async (c) => {
+	return startXOAuth(c.req.raw, c.env);
+});
+
+app.get('/auth/x/callback', async (c) => {
+	return handleXOAuthCallback(c.req.raw, c.env);
+});
+
 app.all('*', async (c) => {
 	const request = c.req.raw;
 	const env = c.env;
 	const url = new URL(request.url);
-
-	if (request.method === 'GET' && url.pathname === '/auth/x/login') {
-		return startXOAuth(request, env);
-	}
-
-	if (request.method === 'GET' && url.pathname === '/auth/x/callback') {
-		return handleXOAuthCallback(request, env);
-	}
 
 	if (request.method === 'GET' && url.pathname === '/x/liked-posts') {
 		return handleLikedPosts(request, env);
