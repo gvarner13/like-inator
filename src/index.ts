@@ -103,18 +103,17 @@ app.get('/auth/x/callback', async (c) => {
 	return handleXOAuthCallback(c.req.raw, c.env);
 });
 
+app.get('/x/liked-posts', async (c) => {
+	return handleLikedPosts(c.req.raw, c.env);
+});
+
+app.get('/x/liked-posts/websites', async (c) => {
+	return handleLikedPostsWebsites(c.req.raw, c.env);
+});
+
 app.all('*', async (c) => {
 	const request = c.req.raw;
-	const env = c.env;
 	const url = new URL(request.url);
-
-	if (request.method === 'GET' && url.pathname === '/x/liked-posts') {
-		return handleLikedPosts(request, env);
-	}
-
-	if (request.method === 'GET' && url.pathname === '/x/liked-posts/websites') {
-		return handleLikedPostsWebsites(request, env);
-	}
 
 	if (request.method === 'GET' && url.pathname === '/') {
 		return new Response('Hello World!');
